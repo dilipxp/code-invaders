@@ -1,0 +1,137 @@
+{
+  "name": "code-invaders",
+  "displayName": "Code Invaders",
+  "description": "A retro space shooter where the code you write becomes the enemy. Plays inside your current editor tab.",
+  "version": "1.1.0",
+  "publisher": "code-invaders",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dilipxp/code-invaders.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dilipxp/code-invaders/issues"
+  },
+  "homepage": "https://github.com/dilipxp/code-invaders#readme",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "game",
+    "arcade",
+    "space invaders",
+    "shooter",
+    "fun"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeInvaders.start",
+        "title": "Start Game",
+        "category": "Code Invaders",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "codeInvaders.exit",
+        "title": "Exit Game",
+        "category": "Code Invaders",
+        "enablement": "codeInvaders.running"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "codeInvaders.start",
+          "when": "editorLangId && config.codeInvaders.showEditorTitleButton",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "codeInvaders.exit",
+          "when": "codeInvaders.running"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Invaders",
+      "properties": {
+        "codeInvaders.theme": {
+          "type": "string",
+          "enum": [
+            "retro",
+            "neon"
+          ],
+          "enumDescriptions": [
+            "Old-school arcade: chunky pixel sprites, bitmap font, CRT scanlines, marching bass.",
+            "Neon synthwave: glowing vector ships, particles and a perspective grid."
+          ],
+          "default": "retro",
+          "description": "Visual theme. Press T in the game to switch."
+        },
+        "codeInvaders.moveSensitivity": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "How fast your ship moves left/right: 1 = slow and precise, 10 = fast. Press [ and ] in the game to adjust."
+        },
+        "codeInvaders.showEditorTitleButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a rocket button in the editor title bar that starts the game."
+        },
+        "codeInvaders.startingLives": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 9,
+          "description": "Number of lives at the start of a game."
+        },
+        "codeInvaders.difficulty": {
+          "type": "string",
+          "enum": [
+            "chill",
+            "normal",
+            "hardcore"
+          ],
+          "default": "normal",
+          "description": "Overall difficulty: enemy speed, fire rate and wave size."
+        },
+        "codeInvaders.reducedEffects": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fewer particles, no screen shake and no glow. Useful on slower machines."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build -- --production",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p src/webview/tsconfig.json --noEmit",
+    "test": "node esbuild.mjs --tests && node --test \"out/test/*.test.js\"",
+    "check": "npm run typecheck && npm run build && npm test",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "~1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}

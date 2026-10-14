@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
+      <stop offset="0" stop-color="#2a0f5c"/><stop offset="1" stop-color="#05010f"/>
+    </radialGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9fdff"/><stop offset="0.5" stop-color="#3fd5ff"/><stop offset="1" stop-color="#5a2fb8"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="44" fill="url(#bg)"/>
+  <g fill="#cfd6ff" opacity="0.8"><circle cx="40" cy="44" r="2"/><circle cx="210" cy="60" r="1.6"/><circle cx="190" cy="200" r="2"/><circle cx="58" cy="170" r="1.4"/><circle cx="128" cy="30" r="1.4"/></g>
+  <g filter="url(#glow)" font-family="DejaVu Sans Mono, monospace" font-weight="bold" text-anchor="middle">
+    <text x="128" y="104" font-size="64" fill="#ff4fd8">{ }</text>
+    <rect x="98" y="58" width="60" height="6" rx="3" fill="#ff4fd8" opacity="0.0"/>
+  </g>
+  <g filter="url(#glow)">
+    <rect x="124" y="122" width="8" height="34" rx="4" fill="#7df9ff"/>
+    <path d="M128 162 L140 186 L170 212 L170 222 L144 216 L138 226 L118 226 L112 216 L86 222 L86 212 L116 186 Z" fill="url(#hull)" stroke="#fff" stroke-width="2"/>
+    <ellipse cx="128" cy="196" rx="5" ry="11" fill="#ff4fd8"/>
+  </g>
+</svg>
