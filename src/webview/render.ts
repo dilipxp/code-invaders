@@ -1,4 +1,6 @@
-import { KIND_COLORS, measureNeon, type Enemy, type EnemyMeasure, type Game, type PowerKind } from './game';
+import { BOSS_DEFS } from './bosses';
+import { ENEMY_DEFS, type UnitType } from './enemies/definitions';
+import { KIND_COLORS, lookOf, measureNeon, type Enemy, type EnemyMeasure, type Game, type PowerKind } from './game';
 
 /** Common surface for the neon and retro renderers. */
 export interface GameRenderer {
@@ -26,6 +28,33 @@ const POWER_STYLE: Record<PowerKind, { color: string; glyph: string }> = {
   shield: { color: '#7df9ff', glyph: '{}' },
   life: { color: '#7bff8a', glyph: '+1' },
 };
+
+type Pt = readonly [number, number];
+
+/** Vector hulls for construct enemies and bosses, in unit coordinates (x, y ∈ −1…1). */
+const NEON_SHAPES: Record<string, readonly Pt[]> = {
+  if: [[-1, -1], [-0.4, -1], [0, -0.25], [0.4, -1], [1, -1], [0.35, 0.55], [0, 1], [-0.35, 0.55]],
+  arrow: [[-1, -1], [0, -0.3], [1, -1], [0.65, 0.15], [0, 1], [-0.65, 0.15]],
+  return: [[0, -1], [1, 0.15], [0.4, 0.15], [0.4, 1], [-0.4, 1], [-0.4, 0.15], [-1, 0.15]],
+  const: [[-1, -1], [-0.6, -1], [-0.6, -0.65], [-0.2, -0.65], [-0.2, -1], [0.2, -1], [0.2, -0.65], [0.6, -0.65], [0.6, -1], [1, -1], [1, 0.55], [0, 1], [-1, 0.55]],
+  try: [[-1, -1], [1, -1], [1, 0], [0, 1], [-1, 0]],
+  for: [[-1, -0.2], [-0.6, -1], [0.6, -1], [1, -0.2], [0.75, 0.5], [0.25, 1], [-0.25, 1], [-0.75, 0.5]],
+  import: [[-1, -1], [1, -1], [1, 0.7], [0.6, 1], [-0.6, 1], [-1, 0.7]],
+  escort: [[0, 1], [1, -0.6], [0, -0.2], [-1, -0.6]],
+  minion: [[0, -1], [1, 0], [0, 1], [-1, 0]],
+  half: [[0, -1], [1, 0.4], [0, 1], [-1, 0.4]],
+  module: [[-1, -1], [1, -1], [1, 1], [-1, 1]],
+  'boss:overlord': [[-1, -0.1], [-0.75, -1], [0.75, -1], [1, -0.1], [0.85, 0.6], [0.35, 1], [-0.35, 1], [-0.85, 0.6]],
+  'boss:phantom': [[-1, 1], [-1, -0.2], [-0.7, -0.85], [0, -1], [0.7, -0.85], [1, -0.2], [1, 1], [0.6, 0.7], [0.2, 1], [-0.2, 0.7], [-0.6, 1]],
+  'boss:hydra': [[-1, -0.3], [-0.5, -1], [0.5, -1], [1, -0.3], [0.6, 1], [-0.6, 1]],
+};
+
+function neonUnitColor(e: Enemy): string {
+  if (e.bossId) {
+    return BOSS_DEFS.find((b) => b.id === e.bossId)?.color ?? '#ffffff';
+  }
+  return e.unit ? ENEMY_DEFS[e.unit as UnitType].color : KIND_COLORS[e.kind];
+}
 
 /** Neon synthwave look. Owns only cosmetic state (stars, nebula cache). */
 export class NeonRenderer implements GameRenderer {
@@ -109,8 +138,10 @@ export class NeonRenderer implements GameRenderer {
       for (const pu of game.powerups) {
         this.drawPowerUp(pu.x, pu.y, pu.kind, pu.age, game.u, glow);
       }
+      this.drawWarnings(game);
       for (const e of game.enemies) {
-        this.drawEnemy(e, game, glow);
+        if (lookOf(e)) this.drawUnit(e, game, glow);
+        else this.drawEnemy(e, game, glow);
       }
       this.drawBullets(game, glow);
       if (game.player.alive && game.state !== 'over') {
@@ -121,9 +152,390 @@ export class NeonRenderer implements GameRenderer {
     this.drawTexts(game);
     ctx.restore();
 
+    this.drawBossBar(game);
     if (game.state === 'playing' && game.levelIntro > 0) {
       this.drawLevelBanner(game);
+    } else if (game.state === 'playing' && game.levels.phase === 'clear' && game.levels.summary) {
+      this.drawSummary(game);
+    } else if (game.state === 'playing' && game.banner.time > 0) {
+      this.drawAnnouncement(game);
     }
+  }
+
+  // ------------------------------------------------------------------ construct enemies & bosses
+
+  private poly(points: readonly Pt[], hw: number, hh: number): void {
+    const { ctx } = this;
+    ctx.beginPath();
+    points.forEach(([x, y], i) => (i ? ctx.lineTo(x * hw, y * hh) : ctx.moveTo(x * hw, y * hh)));
+    ctx.closePath();
+  }
+
+  private drawUnit(e: Enemy, game: Game, glow: boolean): void {
+    const { ctx } = this;
+    const u = game.u;
+    const look = lookOf(e)!;
+    const base = game.power.freeze > 0 ? '#8fd3ff' : neonUnitColor(e);
+    const blink = Math.floor(game.time * 10) % 2 === 0;
+    const color = e.flash > 0.5 || (e.windup > 0.5 && blink) ? '#ffffff' : base;
+    const hw = e.w / 2;
+    const hh = e.h / 2;
+    const boss = e.role === 'boss';
+
+    // Tether to the group leader.
+    const parent = e.parentUid !== undefined ? game.byUid(e.parentUid) : undefined;
+    if (parent && e.role !== 'clone') {
+      ctx.save();
+      ctx.strokeStyle = withAlpha(base, 0.35);
+      ctx.setLineDash([3 * u, 5 * u]);
+      ctx.beginPath();
+      ctx.moveTo(e.x, e.y);
+      ctx.lineTo(parent.x, parent.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.translate(e.x + (e.windup > 0 ? Math.sin(game.time * 50) * 2 * e.windup * u : 0), e.y);
+    if (e.phased) {
+      ctx.globalAlpha = 0.18 + 0.1 * Math.sin(game.time * 12);
+      ctx.setLineDash([4 * u, 4 * u]);
+    } else if (e.role === 'clone') {
+      ctx.globalAlpha = 0.8;
+    }
+    if (glow && !e.phased) {
+      ctx.shadowColor = base;
+      ctx.shadowBlur = boss ? 26 : e.windup > 0 ? 10 + 20 * e.windup : 12;
+    }
+    ctx.strokeStyle = color;
+    ctx.fillStyle = withAlpha(base, boss ? 0.22 : 0.16);
+    ctx.lineWidth = boss ? 3 : 2;
+
+    switch (look) {
+      case 'and':
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.arc(side * hw * 0.5, 0, Math.min(hh, hw * 0.45), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        break;
+      case 'or':
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(side * 2 * u, -hh);
+          ctx.lineTo(side * hw, 0);
+          ctx.lineTo(side * 2 * u, hh);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        break;
+      case 'while':
+      case 'promise':
+      case 'boss:loop': {
+        if (look === 'boss:loop') {
+          // ∞
+          for (const side of [-1, 1]) {
+            ctx.beginPath();
+            ctx.ellipse(side * hw * 0.48, 0, hw * 0.46, hh * 0.85, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        } else {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, hw, hh, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          // Spinning loop / pending arc.
+          ctx.beginPath();
+          ctx.ellipse(0, 0, hw + 5 * u, hh + 5 * u, 0, game.time * 4, game.time * 4 + Math.PI * (look === 'while' ? 1.5 : 0.7));
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'let': {
+        const pts: Pt[] = [];
+        const n = 8;
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2;
+          const rr = e.mem.mode ? (k % 2 ? 0.55 : 1) : 0.85;
+          pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+        }
+        this.poly(pts, hw, hh);
+        ctx.fill();
+        ctx.stroke();
+        break;
+      }
+      case 'throw': {
+        const pts: Pt[] = [];
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2 + e.age * 2;
+          const rr = k % 2 ? 0.5 : 1;
+          pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+        }
+        this.poly(pts, Math.min(hw, hh * 1.3), hh);
+        ctx.fill();
+        ctx.stroke();
+        break;
+      }
+      case 'async':
+        ctx.beginPath();
+        ctx.moveTo(-hw * 0.7, -hh);
+        ctx.lineTo(hw * 0.7, -hh);
+        ctx.lineTo(-hw * 0.7, hh);
+        ctx.lineTo(hw * 0.7, hh);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      case 'function':
+      case 'recursive':
+      case 'class':
+      case 'head':
+      case 'boss:runtime': {
+        if (look === 'class') {
+          this.poly(NEON_SHAPES['boss:overlord'], hw, hh);
+        } else if (look === 'boss:runtime' || look === 'head') {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, hw * 0.8, hh * 0.9, 0, 0, Math.PI * 2);
+        } else {
+          this.poly([[-1, 0], [-0.7, -1], [0.7, -1], [1, 0], [0.7, 1], [-0.7, 1]], hw, hh);
+        }
+        ctx.fill();
+        ctx.stroke();
+        if (look === 'recursive') {
+          ctx.save();
+          ctx.scale(0.6, 0.6);
+          this.poly([[-1, 0], [-0.7, -1], [0.7, -1], [1, 0], [0.7, 1], [-0.7, 1]], hw, hh);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (look === 'boss:runtime') {
+          ctx.beginPath();
+          for (let k = -1; k <= 1; k++) {
+            ctx.moveTo(-hw * 0.7, k * hh * 0.4);
+            ctx.lineTo(-hw, k * hh * 0.5 + Math.sin(e.age * 10 + k) * 6 * u);
+            ctx.moveTo(hw * 0.7, k * hh * 0.4);
+            ctx.lineTo(hw, k * hh * 0.5 - Math.sin(e.age * 10 + k) * 6 * u);
+          }
+          ctx.stroke();
+        }
+        break;
+      }
+      default: {
+        const shape = NEON_SHAPES[look];
+        if (shape) {
+          this.poly(shape, hw, hh);
+        } else {
+          roundRect(ctx, -hw, -hh * 0.7, e.w, hh * 1.4, 6 * u);
+        }
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.shadowBlur = 0;
+    ctx.setLineDash([]);
+
+    if (!e.phased) {
+      if (boss) {
+        this.label(e.spec.label, 0, 0, 16 * u, '#ffffff', glow, 'bold');
+      } else {
+        this.label(e.spec.label, 0, look === 'for' ? -hh * 0.15 : 0, (e.role === 'escort' ? 12 : e.def?.tier === 3 ? 12 : 11) * u, color, glow, 'bold');
+      }
+      if (e.showSig > 0 && e.spec.construct?.signature) {
+        ctx.globalAlpha = Math.min(1, e.showSig * 2);
+        this.label(e.spec.construct.signature, 0, hh + 10 * u, 10 * u, '#ffffff', false);
+        ctx.globalAlpha = 1;
+      }
+      // Shields.
+      if (e.shieldTimer > 0 && !boss) {
+        const max = e.mem.shieldMax || 2;
+        ctx.strokeStyle = `rgba(125, 249, 255, ${0.5 + 0.4 * Math.sin(game.time * 10)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(hw, hh) + 6 * u, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (e.shieldTimer / max));
+        ctx.stroke();
+      }
+      if (e.shield > 0) {
+        ctx.fillStyle = '#7df9ff';
+        for (let k = 0; k < e.shield; k++) ctx.fillRect(-e.shieldMax * 5 * u + k * 10 * u, -hh - 7 * u, 8 * u, 3 * u);
+      }
+      if (e.exposed > 0) {
+        ctx.fillStyle = blink ? '#ffffff' : base;
+        ctx.beginPath();
+        ctx.arc(0, hh * 0.2, 5 * u, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const badge = boss ? '' : e.badge || (e.fresh ? 'NEW' : '');
+      if (badge) {
+        this.label(badge, 0, -hh - (e.shield > 0 ? 14 : 8) * u, 9 * u, '#ffffff', false, 'bold');
+      }
+      if (e.elite) {
+        ctx.fillStyle = blink ? '#ffffff' : '#ffd166';
+        ctx.font = `bold ${11 * u}px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.fillText('★', hw + 6 * u, -hh + 4 * u);
+      }
+      if (e.maxHp > 1 && !boss) {
+        const bw = Math.min(e.w, 60 * u);
+        const y = hh + (e.showSig > 0 ? 16 : 6) * u;
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(-bw / 2, y, bw, 3 * u);
+        ctx.fillStyle = base;
+        ctx.fillRect(-bw / 2, y, bw * Math.max(0, e.hp / e.maxHp), 3 * u);
+      }
+    }
+    ctx.restore();
+  }
+
+  private drawWarnings(game: Game): void {
+    const { ctx } = this;
+    const u = game.u;
+    const blink = Math.floor(game.time * 12) % 2 === 0;
+    ctx.save();
+    for (const w of game.warnings) {
+      const k = w.life / w.max; // 1 → 0
+      const urgent = k < 0.4;
+      ctx.globalAlpha = urgent ? (blink ? 0.95 : 0.4) : 0.65;
+      ctx.strokeStyle = urgent ? '#ffffff' : w.color;
+      ctx.fillStyle = withAlpha(w.color, 0.12);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6 * u, 6 * u]);
+      ctx.lineDashOffset = -game.time * 40;
+      switch (w.kind) {
+        case 'circle':
+        case 'marker':
+          ctx.beginPath();
+          ctx.arc(w.x, w.y, w.r * (w.kind === 'marker' ? 0.6 + 0.4 * k : 1), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          this.label('!', w.x, w.y, 16 * u, ctx.strokeStyle as string, false, 'bold');
+          if (w.label) this.label(w.label, w.x, w.y + w.r + 10 * u, 10 * u, w.color, false);
+          break;
+        case 'line':
+          ctx.beginPath();
+          ctx.moveTo(w.x, w.y);
+          ctx.lineTo(w.x2 ?? w.x, w.y2 ?? w.y);
+          ctx.stroke();
+          break;
+        case 'column':
+          ctx.fillRect(w.x - w.r, 0, w.r * 2, this.h);
+          ctx.strokeRect(w.x - w.r, 0, w.r * 2, this.h);
+          this.label('!', w.x, 40 * u, 16 * u, ctx.strokeStyle as string, false, 'bold');
+          break;
+        case 'row': {
+          const gap = w.x2 ?? -9999;
+          ctx.beginPath();
+          ctx.moveTo(0, w.y);
+          ctx.lineTo(gap - w.r, w.y);
+          ctx.moveTo(gap + w.r, w.y);
+          ctx.lineTo(this.w, w.y);
+          ctx.stroke();
+          this.label('gap', gap, w.y + 12 * u, 11 * u, '#7bff8a', false, 'bold');
+          break;
+        }
+      }
+    }
+    ctx.setLineDash([]);
+    for (const hz of game.hazards) {
+      if (hz.warn > 0) {
+        ctx.globalAlpha = blink ? 0.5 : 0.25;
+        ctx.fillStyle = withAlpha(hz.color, 0.25);
+        ctx.fillRect(hz.x - hz.w / 2, 0, hz.w, this.h);
+        ctx.globalAlpha = 1;
+        this.label('!!', hz.x, 40 * u, 16 * u, '#ffffff', false, 'bold');
+      } else {
+        ctx.globalAlpha = 0.9;
+        const g = ctx.createLinearGradient(hz.x - hz.w / 2, 0, hz.x + hz.w / 2, 0);
+        g.addColorStop(0, withAlpha(hz.color, 0));
+        g.addColorStop(0.5, '#ffffff');
+        g.addColorStop(1, withAlpha(hz.color, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(hz.x - hz.w / 2, 0, hz.w, this.h);
+      }
+    }
+    ctx.restore();
+  }
+
+  private drawBossBar(game: Game): void {
+    const boss = game.levels.boss;
+    if (!boss || !boss.alive || game.state === 'over' || game.state === 'title') {
+      return;
+    }
+    const { ctx } = this;
+    const u = game.u;
+    const e = boss.enemy;
+    const w = Math.min(this.w * 0.6, 520 * u);
+    const x0 = (this.w - w) / 2;
+    const y = 64 * u;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = `bold ${Math.round(13 * u)}px ${FONT}`;
+    ctx.fillStyle = boss.def.color;
+    ctx.shadowColor = boss.def.color;
+    ctx.shadowBlur = 10;
+    ctx.fillText(boss.def.title, this.w / 2, y - 8 * u);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(x0, y, w, 8 * u);
+    ctx.fillStyle = e.shieldTimer > 0 ? '#ffffff' : boss.def.color;
+    ctx.fillRect(x0, y, w * Math.max(0, e.hp / e.maxHp), 8 * u);
+    ctx.fillStyle = '#04010d';
+    for (const ph of boss.def.phases) {
+      if (ph.until > 0) ctx.fillRect(x0 + w * ph.until - 1, y - 2 * u, 2, 12 * u);
+    }
+    ctx.font = `${Math.round(11 * u)}px ${FONT}`;
+    ctx.fillStyle = '#cfc8ff';
+    ctx.fillText(`phase ${boss.phaseIndex + 1}/${boss.def.phases.length} · ${boss.phase.name}${e.badge && e.badge !== boss.phase.name.toUpperCase() ? ' · ' + e.badge.toLowerCase() : ''}`, this.w / 2, y + 22 * u);
+    ctx.restore();
+  }
+
+  private drawAnnouncement(game: Game): void {
+    const { ctx, w, h } = this;
+    const t = game.banner;
+    const a = Math.min(1, t.time * 3, (t.max - t.time) * 5);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${Math.round(40 * game.u)}px ${FONT}`;
+    ctx.shadowColor = t.color;
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = t.text === 'WARNING' && Math.floor(game.time * 6) % 2 ? '#ffffff' : t.color;
+    ctx.fillText(t.text, w / 2, h * 0.42);
+    ctx.shadowBlur = 0;
+    if (t.sub) {
+      ctx.font = `${Math.round(15 * game.u)}px ${FONT}`;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(t.sub, w / 2, h * 0.42 + 40 * game.u, w - 40);
+    }
+    ctx.restore();
+  }
+
+  private drawSummary(game: Game): void {
+    const { ctx, w, h } = this;
+    const s = game.levels.summary!;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${Math.round(38 * game.u)}px ${FONT}`;
+    ctx.shadowColor = '#7bff8a';
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = '#7bff8a';
+    ctx.fillText(`LEVEL ${s.level} CLEAR`, w / 2, h * 0.34);
+    ctx.shadowBlur = 0;
+    ctx.font = `${Math.round(15 * game.u)}px ${FONT}`;
+    const rows = [
+      `${s.bossTitle.toLowerCase()} defeated — ${s.signature}`,
+      `kills ${s.kills} · accuracy ${s.accuracy}%`,
+      `${s.clean ? 'clean build · ' : ''}bonus +${s.bonus.toLocaleString('en-US')}`,
+    ];
+    rows.forEach((row, i) => {
+      ctx.fillStyle = i === 2 && s.clean ? '#ffd166' : '#ffffff';
+      ctx.fillText(row, w / 2, h * 0.34 + (44 + i * 24) * game.u, w - 40);
+    });
+    ctx.restore();
   }
 
   // ------------------------------------------------------------------ background
@@ -547,14 +959,23 @@ export class NeonRenderer implements GameRenderer {
     ctx.lineCap = 'round';
     for (const b of game.bullets) {
       if (b.enemy) {
-        ctx.fillStyle = '#ff3864';
+        const big = b.kind === 'heavy' ? 2.2 : b.kind === 'pending' ? 1.8 + 0.4 * Math.sin(game.time * 14) : b.kind === 'fragment' ? 0.7 : 1;
+        const col = b.kind === 'pending' || b.kind === 'fragment' ? '#ff55aa' : b.kind === 'aimed' ? '#ff9f1c' : '#ff3864';
+        ctx.fillStyle = col;
         if (glow) {
-          ctx.shadowColor = '#ff3864';
-          ctx.shadowBlur = 10;
+          ctx.shadowColor = col;
+          ctx.shadowBlur = 10 * big;
         }
         ctx.beginPath();
-        ctx.arc(b.x, b.y, 4 * u, 0, Math.PI * 2);
+        ctx.arc(b.x, b.y, 4 * u * big, 0, Math.PI * 2);
         ctx.fill();
+        if (b.kind === 'pending' && b.fuse !== undefined) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, 10 * u, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, b.fuse));
+          ctx.stroke();
+        }
         ctx.fillStyle = '#ffd1dc';
         ctx.beginPath();
         ctx.arc(b.x, b.y, 1.8 * u, 0, Math.PI * 2);
@@ -718,6 +1139,12 @@ export class NeonRenderer implements GameRenderer {
         ? `Incoming: ${game.snapshot?.fileName ?? 'unknown source'}`
         : `${game.quota} hostiles · they're getting faster`;
     ctx.fillText(subtitle, w / 2, h * 0.4 + 40 * game.u);
+    const boss = game.levels.bossDef;
+    if (boss) {
+      ctx.fillStyle = boss.color;
+      ctx.font = `${Math.round(13 * game.u)}px ${FONT}`;
+      ctx.fillText(`boss: ${boss.title.toLowerCase()}`, w / 2, h * 0.4 + 64 * game.u);
+    }
     ctx.restore();
   }
 }

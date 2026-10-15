@@ -59,6 +59,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <p class="tagline">Your code has turned hostile. Defend the build.</p>
         <p id="title-stats" class="stats"></p>
         <div class="legend" id="legend"></div>
+        <div class="roster" id="roster" aria-label="Enemies from your code"></div>
         <div class="powers" id="powers" aria-label="Code powers"></div>
         <div class="controls">
           <div><kbd>←</kbd><kbd>→</kbd> / <kbd>A</kbd><kbd>D</kbd> move</div>
@@ -96,6 +97,21 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <div class="actions">
           <button id="btn-again" class="primary">Play again <kbd>Enter</kbd></button>
           <button id="btn-over-exit">Exit to editor <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-victory" class="overlay hidden">
+      <div class="panel">
+        <h2 class="victory">Build Passed</h2>
+        <p class="tagline">All five bosses defeated. The final bug was:</p>
+        <p class="signature"><code id="victory-signature"></code></p>
+        <p class="stats big"><span id="victory-score">0</span></p>
+        <p id="victory-best" class="stats"></p>
+        <dl id="victory-details" class="details"></dl>
+        <div class="actions">
+          <button id="btn-replay" class="primary">Replay <kbd>Enter</kbd></button>
+          <button id="btn-victory-exit">Exit to editor <kbd>Esc</kbd></button>
         </div>
       </div>
     </section>

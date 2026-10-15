@@ -84,6 +84,37 @@ export class Audio {
       case 'freeze':
         [1568, 1319, 1047, 784].forEach((f, i) => this.tone('triangle', f, f, 0.07, 0.22, i * 0.04));
         break;
+      case 'warning':
+        this.tone('square', 660, 660, 0.06, 0.18);
+        this.tone('square', 660, 660, 0.06, 0.18, 0.12);
+        break;
+      case 'deflect':
+        if (t - this.lastShot < 0.03) {
+          return;
+        }
+        this.tone('triangle', 1400, 900, 0.05, 0.18);
+        break;
+      case 'summon':
+        this.tone('square', 220, 660, 0.12, 0.18);
+        break;
+      case 'warp':
+        this.tone('sine', 900, 120, 0.3, 0.25);
+        break;
+      case 'bossIntro':
+        // Air-raid siren.
+        [0, 0.5, 1, 1.5].forEach((d) => this.tone('sawtooth', 220, 440, 0.45, 0.2, d));
+        break;
+      case 'bossPhase':
+        this.burst(0.4, 1200, 0.6);
+        [330, 247, 196].forEach((f, i) => this.tone('square', f, f, 0.12, 0.25, i * 0.1));
+        break;
+      case 'bossDefeat':
+        this.burst(1.2, 700, 0.9);
+        this.tone('sawtooth', 160, 30, 1.2, 0.35);
+        break;
+      case 'victory':
+        [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => this.tone('square', f, f, 0.14, 0.22, i * 0.12));
+        break;
     }
   }
 

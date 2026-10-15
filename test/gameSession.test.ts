@@ -140,10 +140,10 @@ describe('GameSession', () => {
     await tick(450);
     const updates = messagesOfType(p, 'code');
     assert.equal(updates.length, 1);
-    const fresh = updates[0].fresh as Array<{ kind: string; label: string }>;
+    const fresh = updates[0].fresh as Array<{ kind: string; label: string; archetype?: string }>;
     assert.deepEqual(
-      fresh.map((f) => f.label),
-      ['if'],
+      fresh.map((f) => [f.archetype, f.label]),
+      [['if', 'if x']],
     );
   });
 
@@ -162,7 +162,7 @@ describe('GameSession', () => {
     await tick(450);
     const update = messagesOfType(p, 'code').at(-1);
     assert.ok(update, 'update sent');
-    assert.ok((update.fresh as Array<{ label: string }>).some((f) => f.label === 'while'));
+    assert.ok((update.fresh as Array<{ label: string; archetype?: string }>).some((f) => f.archetype === 'while' && f.label === 'while alive'));
   });
 
   it('keeps the last analysis when the file is no longer open anywhere (diagnostics cleared on close)', async () => {

@@ -167,8 +167,8 @@ describe('== enemies', () => {
         ['===', 1],
       ],
     );
-    // The `if` itself is still there.
-    assert.ok(s.specs.some((x) => x.kind === 'keyword' && x.label === 'if'));
+    // The `if` itself is still there (as a conditional construct enemy labelled from the source).
+    assert.ok(s.specs.some((x) => x.kind === 'keyword' && x.archetype === 'if' && x.label === 'if a == b'));
   });
 
   it('ignores !=, !==, <=, >=, comments and strings', () => {

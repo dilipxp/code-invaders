@@ -1,7 +1,17 @@
 /**
- * Pure (vscode-free) code → enemy conversion. Kept separate so it can be unit tested in plain Node.
+ * Pure (vscode-free) code → enemy conversion (the "SourceCodeAnalyzer"). Kept separate so it can be
+ * unit tested in plain Node. It only reads text; it never executes or modifies the user's code.
+ *
+ * Two layers:
+ *   1. Constructs (`src/analysis/`): a syntax-aware parser for JS/TS — and an indentation-based
+ *      fallback for other languages — finds loops, conditionals, functions, classes… and groups them
+ *      into meaningful enemies (one Loop Commander per loop nest, one enemy per if/else chain, …).
+ *   2. Lines: every other line still becomes a classic enemy (statements, comments, brackets,
+ *      strings), and diagnostics become bugs.
  */
-import type { CodeSnapshot, EnemyKind, EnemySpec } from './shared/protocol';
+import { type Construct, truncateLabel } from './analysis/constructs';
+import { adapterFor } from './analysis/languages';
+import type { Archetype, CodeSnapshot, ConstructInfo, EnemyKind, EnemySpec } from './shared/protocol';
 
 /** Lines analysed at most; larger documents use a window centred on the cursor. */
 export const MAX_ANALYZED_LINES = 3000;
@@ -29,6 +39,27 @@ export interface AnalyzeInput {
   cursorLine?: number;
   diagnostics?: readonly DiagnosticLike[];
 }
+
+/** Enemy kind (sprite family / colour fallback) used for each construct archetype. */
+export const ARCHETYPE_KIND: Record<Archetype, EnemyKind> = {
+  if: 'keyword',
+  and: 'keyword',
+  or: 'keyword',
+  arrow: 'function',
+  return: 'keyword',
+  function: 'function',
+  const: 'line',
+  let: 'line',
+  while: 'keyword',
+  class: 'class',
+  try: 'keyword',
+  for: 'keyword',
+  async: 'function',
+  promise: 'keyword',
+  import: 'keyword',
+  throw: 'keyword',
+  recursive: 'function',
+};
 
 const COMMENT_RE = /^(\/\/|\/\*|\*\/|\*(\s|$)|#(?!include|define|if|endif|pragma|region|endregion|!)|--|<!--|;;)/;
 const CLASS_RE =
@@ -193,14 +224,39 @@ export function analyzeCode(input: AnalyzeInput): CodeSnapshot {
     });
   }
 
-  let nonBlank = 0;
+  // Read the window once (lines are capped so minified files stay cheap).
+  const lines: string[] = [];
   for (let i = start; i < end; i++) {
-    let text: string;
     try {
-      text = input.getLine(i);
+      lines.push(input.getLine(i).slice(0, MAX_LINE_CHARS));
     } catch {
       break; // document shrank while we were reading
     }
+  }
+
+  const adapter = adapterFor(input.languageId, input.fileName);
+  let constructs: Construct[] = [];
+  let absorbed = new Set<number>();
+  try {
+    const result = adapter.analyze(lines, start);
+    constructs = result.constructs;
+    absorbed = result.absorbedLines;
+  } catch {
+    // A parser bug must never break the game: fall back to plain line enemies.
+  }
+  const byLine = new Map<number, number[]>();
+  constructs.forEach((c, idx) => {
+    const list = byLine.get(c.line);
+    if (list) list.push(idx);
+    else byLine.set(c.line, [idx]);
+  });
+  const specIdOf = new Map<number, string>();
+  const counts: Partial<Record<Archetype, number>> = {};
+
+  let nonBlank = 0;
+  for (let k = 0; k < lines.length; k++) {
+    const i = start + k;
+    const text = lines[k];
     const c = classifyLine(text);
     if (!c) {
       continue;
@@ -209,8 +265,36 @@ export function analyzeCode(input: AnalyzeInput): CodeSnapshot {
     if (specs.length >= MAX_SPECS) {
       continue;
     }
-    const normalized = normalize(text.slice(0, MAX_LINE_CHARS));
-    specs.push({ id: makeId(`${c.kind}:${normalized}`), line: i, ...c });
+    const normalized = normalize(text);
+    const here = byLine.get(i);
+    if (here && c.kind !== 'comment') {
+      // Construct enemies replace the line's own enemy.
+      const hp = clampHp(1 + Math.floor(text.trim().length / 45) + Math.floor(complexityOf(text) / 8));
+      for (const idx of here) {
+        if (specs.length >= MAX_SPECS) {
+          break;
+        }
+        const con = constructs[idx];
+        const id = makeId(`${con.archetype}:${normalized}`);
+        specIdOf.set(idx, id);
+        counts[con.archetype] = (counts[con.archetype] ?? 0) + 1;
+        const info = constructInfo(con);
+        if (con.parent !== undefined && specIdOf.has(con.parent)) {
+          info.parentId = specIdOf.get(con.parent);
+        }
+        specs.push({
+          id,
+          kind: ARCHETYPE_KIND[con.archetype],
+          label: truncateLabel(con.label, 12),
+          hp,
+          line: i,
+          archetype: con.archetype,
+          construct: info,
+        });
+      }
+    } else if (!absorbed.has(i) || c.kind === 'comment' || c.kind === 'bracket') {
+      specs.push({ id: makeId(`${c.kind}:${normalized}`), line: i, ...c });
+    }
 
     // A comparison on the line spawns an extra `==` twin-striker enemy.
     const eq = c.kind === 'comment' || c.kind === 'string' ? null : equalsOperator(text);
@@ -228,7 +312,23 @@ export function analyzeCode(input: AnalyzeInput): CodeSnapshot {
     warnings,
     truncated: end - start < input.lineCount || nonBlank > specs.length,
     empty: nonBlank === 0,
+    parser: adapter.parser,
+    constructs: counts,
   };
+}
+
+function constructInfo(c: Construct): ConstructInfo {
+  const info: ConstructInfo = {};
+  if (c.name) info.name = c.name;
+  if (c.signature) info.signature = c.signature.slice(0, 40);
+  if (c.loopVar) info.loopVar = c.loopVar.slice(0, 6);
+  if (c.innerVars?.length) info.innerVars = c.innerVars.map((v) => v.slice(0, 6));
+  if (c.nesting && c.nesting > 1) info.nesting = c.nesting;
+  if (c.params?.length) info.params = c.params.map((p) => p.slice(0, 10));
+  if (c.methods?.length) info.methods = c.methods.map((m) => m.slice(0, 10));
+  if (c.count && c.count > 1) info.count = c.count;
+  if (c.combo) info.combo = true;
+  return info;
 }
 
 /**

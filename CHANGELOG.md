@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.0
+
+- **Your code's constructs are the enemies.** A syntax-aware JS/TS parser (with an indentation-based
+  fallback for other languages) turns loops, conditionals, logic, arrow functions, functions,
+  `const`/`let`, `while`, classes, `try/catch`, `async/await`, Promises, imports, `return`/`throw` and
+  recursion into 17 data-driven enemy types in three tiers, each with an ability that matches what the
+  code does. Related syntax is grouped (one Loop Commander per loop nest, one enemy per if-chain…).
+- **Loop Commander**: a `for` loop arrives with its loop-variable escorts and signature; escorts
+  intercept shots, destroying them exposes the core, killing the commander removes its escorts.
+- **Five end-of-level bosses**: The Infinite Loop, The Recursive Hydra, The Class Overlord, The Async
+  Phantom and The Runtime Error — with phases, health bars, intro and defeat sequences, level-clear
+  summaries and a victory screen showing the final bug's signature.
+- **Fairness**: telegraphed warnings before every dangerous attack, hard caps on escorts, clones,
+  summons, reinforcements and projectiles, a capped difficulty curve, and waves normalised to a
+  per-level budget (large files are sampled).
+- Waves are planned once per level from the current code; typed code still arrives as `NEW` enemies.
+
 ## 1.1.0
 
 - New default **retro arcade theme**: pixel-art sprites, bitmap font, CRT scanlines, arcade HUD,

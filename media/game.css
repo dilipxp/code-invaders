@@ -241,6 +241,49 @@ h2.danger {
   text-shadow: 0 0 16px rgba(255, 56, 100, 0.8);
 }
 
+h2.victory {
+  color: #7bff8a;
+  text-shadow: 0 0 16px rgba(123, 255, 138, 0.8);
+}
+
+.signature {
+  margin: 4px 0 8px;
+  font-size: 13px;
+}
+
+.signature code {
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  color: #ffd166;
+  word-break: break-word;
+}
+
+.roster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  margin: -6px 0 14px;
+  font-size: 11px;
+  color: var(--ink);
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.roster-title {
+  flex-basis: 100%;
+  text-align: center;
+  color: var(--violet);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.roster-item b {
+  font-weight: 700;
+}
+
 .tagline {
   margin: 10px 0 4px;
   color: var(--ink);
@@ -589,8 +632,20 @@ body.retro kbd {
   color: #ffff55;
 }
 
-body.retro .powers-title {
+body.retro .powers-title,
+body.retro .roster-title {
   color: #ff55ff;
+}
+
+body.retro h2.victory {
+  color: #33ff33;
+  text-shadow: none;
+  animation: blink 1s steps(2) infinite;
+}
+
+body.retro .signature code {
+  border-radius: 0;
+  color: #ffff55;
 }
 
 body.retro .powers-grid b {

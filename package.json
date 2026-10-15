@@ -1,8 +1,8 @@
 {
   "name": "code-invaders",
   "displayName": "Code Invaders",
-  "description": "A retro space shooter where the code you write becomes the enemy. Plays inside your current editor tab.",
-  "version": "1.1.0",
+  "description": "A retro space shooter where the code you write becomes the enemy: loops, conditionals, classes and promises attack with abilities that match what they do, and every level ends with a boss. Plays inside your current editor tab.",
+  "version": "1.2.0",
   "publisher": "code-invaders",
   "license": "MIT",
   "repository": {
@@ -108,7 +108,7 @@
             "hardcore"
           ],
           "default": "normal",
-          "description": "Overall difficulty: enemy speed, fire rate and wave size."
+          "description": "Overall difficulty: enemy speed, fire rate, wave size, ability cooldowns and boss health."
         },
         "codeInvaders.reducedEffects": {
           "type": "boolean",

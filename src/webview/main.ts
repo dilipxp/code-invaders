@@ -1,5 +1,6 @@
-import type { CodeSnapshot, EnemyKind, GameSettings, HostToWebview, InGameSetting, Theme, WebviewToHost } from '../shared/protocol';
+import { ARCHETYPES, type CodeSnapshot, type EnemyKind, type GameSettings, type HostToWebview, type InGameSetting, type Theme, type WebviewToHost } from '../shared/protocol';
 import { Audio } from './audio';
+import { ENEMY_DEFS } from './enemies/definitions';
 import { CODE_POWERS, Game, KIND_COLORS } from './game';
 import { drawPixelText, pixelTextWidth } from './pixelFont';
 import { NeonRenderer, type GameRenderer } from './render';
@@ -38,7 +39,7 @@ const hud = {
   powerups: $('hud-powerups'),
   hint: $('hud-hint'),
 };
-const screens = { title: $('screen-title'), pause: $('screen-pause'), over: $('screen-over') };
+const screens = { title: $('screen-title'), pause: $('screen-pause'), over: $('screen-over'), victory: $('screen-victory') };
 const toastEl = $('toast');
 
 const audio = new Audio();
@@ -61,6 +62,11 @@ const game = new Game({
   gameOver: (score, level) => {
     vscode.postMessage({ type: 'gameOver', score, level });
     showGameOver();
+  },
+  victory: (score, signature) => {
+    // Same message as game over so the host stores the high score.
+    vscode.postMessage({ type: 'gameOver', score, level: game.level });
+    showVictory(signature);
   },
 });
 
@@ -244,7 +250,12 @@ function updateHud(): void {
   setText(hud.hi, 'hi', Math.max(game.hiScore, game.score).toLocaleString('en-US'));
   setText(hud.level, 'level', String(game.level));
   setText(hud.lives, 'lives', game.lives > 0 ? '▲ '.repeat(Math.min(game.lives, 9)).trim() : '—');
-  setText(hud.enemies, 'enemies', `${game.enemies.length} on screen · ${Math.max(0, game.enemiesLeft)} left`);
+  const boss = game.levels.boss;
+  setText(
+    hud.enemies,
+    'enemies',
+    boss ? `boss: ${boss.def.title.toLowerCase()}` : `${game.enemies.length} on screen · ${Math.max(0, game.enemiesLeft)} left`,
+  );
   const p = game.power;
   const powers: string[] = [];
   if (p.loop > 0) powers.push(`<span class="pw loop">for-loop shield ${Math.ceil(p.loop)}s</span>`);
@@ -266,7 +277,7 @@ function show(screen: keyof typeof screens | undefined): void {
     el.classList.toggle('hidden', name !== screen);
   }
   const inGame = game.state === 'playing' || game.state === 'paused';
-  hud.root.classList.toggle('hidden', !inGame && game.state !== 'over');
+  hud.root.classList.toggle('hidden', !inGame && game.state !== 'over' && game.state !== 'victory');
   hud.hint.classList.toggle('hidden', game.state !== 'playing');
   canvas.focus();
 }
@@ -295,7 +306,38 @@ function describeSnapshot(s: CodeSnapshot): string {
   if (s.truncated) {
     text += ' (large file: only the code around your cursor is used)';
   }
+  if (s.parser === 'syntax') {
+    text += ' · syntax-aware parser';
+  } else if (s.parser === 'fallback') {
+    text += ' · pattern-based fallback for this language';
+  }
   return text;
+}
+
+/** "Your code fields:" — the construct enemies found in this file, strongest first. */
+function renderRoster(s: CodeSnapshot | undefined): void {
+  const colors = game.settings.theme === 'retro';
+  const counts = s?.constructs ?? {};
+  const found = ARCHETYPES.filter((a) => (counts[a] ?? 0) > 0).sort((a, b) => ENEMY_DEFS[b].tier - ENEMY_DEFS[a].tier);
+  const items = found.slice(0, 12).map((a) => {
+    const def = ENEMY_DEFS[a];
+    const item = document.createElement('span');
+    item.className = 'roster-item';
+    item.title = `${def.role}: ${def.ability}`;
+    const g = document.createElement('b');
+    g.textContent = def.title.replace(/ Bot$/, '');
+    g.style.color = colors ? def.retroColor : def.color;
+    item.append(g, document.createTextNode(` ×${counts[a]} ${def.role.toLowerCase()}`));
+    return item;
+  });
+  if (items.length === 0) {
+    $('roster').replaceChildren();
+    return;
+  }
+  const title = document.createElement('div');
+  title.className = 'roster-title';
+  title.textContent = 'Your code fields — and a boss at the end of every level';
+  $('roster').replaceChildren(title, ...items);
 }
 
 const LEGEND: Array<[EnemyKind, string, string]> = [
@@ -337,6 +379,7 @@ function renderLegend(): void {
     grid.append(k, v);
   }
   $('powers').replaceChildren(title, grid);
+  renderRoster(game.snapshot);
 }
 
 /** Retro title: the logo drawn with the bitmap font. */
@@ -363,6 +406,34 @@ function drawLogo(): void {
   drawPixelText(ctx, 'INVADERS', cx, scale * 8, scale, '#ffffff', 'center');
 }
 
+function showVictory(signature: string): void {
+  $('victory-signature').textContent = signature;
+  $('victory-score').textContent = game.score.toLocaleString('en-US');
+  const best = Math.max(game.hiScore, game.score);
+  $('victory-best').textContent = game.score >= best && game.score > 0 ? '★ New high score!' : `Best: ${best.toLocaleString('en-US')}`;
+  const s = game.stats;
+  const accuracy = s.shots ? Math.round((s.hits / s.shots) * 100) : 0;
+  const rows: Array<[string, string]> = [
+    ['Bosses defeated', String(s.bossesDefeated)],
+    ['Enemies destroyed', String(s.kills)],
+    ['Bugs squashed', String(s.bugsSquashed)],
+    ['Shipped to prod', String(s.escaped)],
+    ['Accuracy', `${accuracy}%`],
+    ['Lives left', String(game.lives)],
+  ];
+  $('victory-details').replaceChildren(
+    ...rows.flatMap(([k, v]) => {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      return [dt, dd];
+    }),
+  );
+  show('victory');
+  startLoop();
+}
+
 function showGameOver(): void {
   stopLoop();
   $('over-score').textContent = game.score.toLocaleString('en-US');
@@ -378,6 +449,9 @@ function showGameOver(): void {
     ['Shipped to prod', String(s.escaped)],
     ['Accuracy', `${accuracy}%`],
   ];
+  if (s.bossesDefeated > 0) {
+    rows.splice(1, 0, ['Bosses defeated', String(s.bossesDefeated)]);
+  }
   if (s.toughest) {
     rows.push(['Toughest kill', `${s.toughest.label} (line ${s.toughest.line + 1})`]);
   }
@@ -512,7 +586,7 @@ function onKeyDown(e: KeyboardEvent): void {
     } else {
       handled = false;
     }
-  } else if (game.state === 'over') {
+  } else if (game.state === 'over' || game.state === 'victory') {
     if (code === 'Enter' || code === 'KeyR' || code === 'Space') {
       startGame();
     } else if (code === 'Escape' || code === 'KeyQ') {
@@ -560,6 +634,8 @@ const buttons: Array<[string, () => void]> = [
   ['btn-pause-exit', exitToEditor],
   ['btn-again', startGame],
   ['btn-over-exit', exitToEditor],
+  ['btn-replay', startGame],
+  ['btn-victory-exit', exitToEditor],
 ];
 for (const [id, action] of buttons) {
   const btn = $<HTMLButtonElement>(id);
@@ -605,6 +681,7 @@ window.addEventListener('message', (event: MessageEvent<HostToWebview>) => {
       game.setSnapshot(msg.snapshot);
       game.queueFresh(msg.fresh);
       $('title-stats').textContent = describeSnapshot(msg.snapshot);
+      renderRoster(msg.snapshot);
       if (game.state === 'paused') {
         updatePauseNote();
       }
